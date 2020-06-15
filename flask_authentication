@@ -1,0 +1,75 @@
+"""
+This file defines a User model and a Flask application, and implements authentication using encryption.
+
+For more information, visit http://tecladocode.com/blog/learn-python-password-encryption-with-flask
+"""
+
+from flask import Flask, request, jsonify
+from werkzeug.security import generate_password_hash, check_password_hash
+import sqlite3
+
+app = Flask(__name__)
+
+
+class UserNotFoundError(Exception):
+    def __init__(self, message):
+        self.message = message
+
+
+class User:
+    def __init__(self, username, password):
+        self.username = username
+        self.password = password
+    
+    def save_to_db(self):
+        connection = sqlite3.connect('data.db')
+        cursor = connection.cursor()
+        
+        try:
+            cursor.execute('INSERT INTO users (username, password) VALUES (?, ?)', (self.username, self.password))
+        except:
+            cursor.execute('CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT, password TEXT)')
+            raise UserNotFoundError('The table `users` did not exist, but it was created. Run the registration again.')
+        finally:
+            connection.commit()
+            connection.close()
+    
+    @classmethod
+    def find_by_username(cls, username):
+        connection = sqlite3.connect('data.db')
+        cursor = connection.cursor()
+        
+        try:
+            data = cursor.execute('SELECT * FROM users WHERE username=?', (username,)).fetchone()
+            if data:
+                return cls(data[1], data[2])
+        finally:
+            connection.close()
+
+
+@app.route('/register', methods=['POST'])
+def register_user():
+    username = request.form['username']
+    password = request.form['password']
+    
+    try:
+        User(username, generate_password_hash(password)).save_to_db()
+    except Exception as e:
+        return jsonify({'error': e.message}), 500
+    
+    return jsonify({'message': 'User registered successfully'}), 201
+
+
+@app.route('/login', methods=['POST'])
+def login_user():
+    username = request.form['username']
+    password = request.form['password']
+    
+    user = User.find_by_username(username)
+    
+    if user and check_password_hash(user.password, password):
+        return jsonify({'message': 'Password is correct'})  # You'll want to return a token that verifies the user in the future
+    return jsonify({'error': 'User or password are incorrect'}), 401
+
+if __name__ == '__main__':
+    app.run(debug=True)
